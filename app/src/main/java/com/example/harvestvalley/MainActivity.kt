@@ -10,6 +10,9 @@ import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RectF
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.view.MotionEvent
 import android.view.View
 import android.widget.Button
 import android.widget.FrameLayout
@@ -102,6 +105,8 @@ class MainActivity : Activity() {
     private var animals = mutableListOf<Animal>()
     private var npcs = mutableListOf<Npc>()
     private var log = mutableListOf<String>()
+    private val walkHandler = Handler(Looper.getMainLooper())
+    private var walking = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -109,6 +114,7 @@ class MainActivity : Activity() {
         setContentView(R.layout.activity_main)
         loadGame()
         gameView = GameView(this)
+        gameView.isClickable = true
         gameView.layoutParams = FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT,
             FrameLayout.LayoutParams.MATCH_PARENT
@@ -119,10 +125,6 @@ class MainActivity : Activity() {
     }
 
     private fun bindControls() {
-        findViewById<Button>(R.id.btnUp).setOnClickListener { move(0, -1) }
-        findViewById<Button>(R.id.btnDown).setOnClickListener { move(0, 1) }
-        findViewById<Button>(R.id.btnLeft).setOnClickListener { move(-1, 0) }
-        findViewById<Button>(R.id.btnRight).setOnClickListener { move(1, 0) }
         findViewById<Button>(R.id.btnAction).setOnClickListener { action() }
         findViewById<Button>(R.id.btnSleep).setOnClickListener { confirmSleep() }
         findViewById<Button>(R.id.btnMenu).setOnClickListener { openMenu() }
@@ -135,6 +137,7 @@ class MainActivity : Activity() {
     }
 
     private fun resetState() {
+        stopWalking()
         year = 1
         season = 0
         day = 1
@@ -160,7 +163,7 @@ class MainActivity : Activity() {
             Npc("Bima", 10, 6, Color.parseColor("#1976D2"), "egg"),
             Npc("Sari", 9, 8, Color.parseColor("#C2185B"), "pumpkin")
         )
-        log = mutableListOf("Selamat datang di Harvest Valley!")
+        log = mutableListOf("Ketuk tanah untuk berjalan, lalu tekan AKSI.")
     }
 
     private fun seedForSeason(): String = when (season) {
@@ -206,6 +209,7 @@ class MainActivity : Activity() {
     }
 
     private fun nextDay(newStamina: Int) {
+        stopWalking()
         day++
         if (day > 7) {
             day = 1
@@ -257,6 +261,64 @@ class MainActivity : Activity() {
         playerY = ny
         minutes += 5
         redraw()
+    }
+
+    private fun stopWalking() {
+        walking = false
+        walkHandler.removeCallbacksAndMessages(null)
+    }
+
+    private fun startWalk(tx: Int, ty: Int) {
+        if (blocked(tx, ty)) return
+        stopWalking()
+        val path = findPath(playerX, playerY, tx, ty)
+        if (path.isEmpty()) return
+        walking = true
+        walkStep(path, 0)
+    }
+
+    private fun walkStep(path: List<Pair<Int, Int>>, index: Int) {
+        if (!walking || index >= path.size) {
+            walking = false
+            return
+        }
+        val (nx, ny) = path[index]
+        move(nx - playerX, ny - playerY)
+        walkHandler.postDelayed({ walkStep(path, index + 1) }, 110)
+    }
+
+    private fun findPath(sx: Int, sy: Int, tx: Int, ty: Int): List<Pair<Int, Int>> {
+        val visited = Array(H) { BooleanArray(W) }
+        val previous = Array(H) { arrayOfNulls<Pair<Int, Int>>(W) }
+        val queue: java.util.ArrayDeque<Pair<Int, Int>> = java.util.ArrayDeque()
+        visited[sy][sx] = true
+        queue.add(sx to sy)
+        val dirs = arrayOf(1 to 0, -1 to 0, 0 to 1, 0 to -1)
+
+        while (!queue.isEmpty()) {
+            val (x, y) = queue.removeFirst()
+            if (x == tx && y == ty) break
+            for ((dx, dy) in dirs) {
+                val nx = x + dx
+                val ny = y + dy
+                if (nx in 0 until W && ny in 0 until H &&
+                    !blocked(nx, ny) && !visited[ny][nx]
+                ) {
+                    visited[ny][nx] = true
+                    previous[ny][nx] = x to y
+                    queue.add(nx to ny)
+                }
+            }
+        }
+
+        if (!visited[ty][tx]) return emptyList()
+        val path = mutableListOf<Pair<Int, Int>>()
+        var current: Pair<Int, Int>? = tx to ty
+        while (current != null && current != (sx to sy)) {
+            path.add(0, current)
+            current = previous[current.second][current.first]
+        }
+        return path
     }
 
     private fun action() {
@@ -769,6 +831,9 @@ class MainActivity : Activity() {
 
     private inner class GameView(context: Context) : View(context) {
         private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+        private var worldOx = 0f
+        private var worldOy = 0f
+        private var worldTile = 1f
 
         override fun onDraw(canvas: Canvas) {
             super.onDraw(canvas)
@@ -776,14 +841,23 @@ class MainActivity : Activity() {
             val h = height.toFloat()
             val controlH = dp(205).toFloat()
             val worldH = maxOf(dp(220).toFloat(), h - controlH)
-            val tile = min(w / W, worldH / H)
-            val ox = (w - tile * W) / 2f
-            val oy = dp(10).toFloat()
+            worldTile = min(w / W, worldH / H)
+            worldOx = (w - worldTile * W) / 2f
+            worldOy = dp(10).toFloat()
 
             canvas.drawColor(Color.parseColor("#8BC34A"))
-            drawWorld(canvas, ox, oy, tile)
+            drawWorld(canvas, worldOx, worldOy, worldTile)
             drawHud(canvas, w)
-            drawLog(canvas, w, oy + tile * H)
+            drawLog(canvas, w, worldOy + worldTile * H)
+        }
+
+        override fun onTouchEvent(event: MotionEvent): Boolean {
+            if (event.action == MotionEvent.ACTION_UP) {
+                val gx = ((event.x - worldOx) / worldTile).toInt()
+                val gy = ((event.y - worldOy) / worldTile).toInt()
+                if (gx in 0 until W && gy in 0 until H) startWalk(gx, gy)
+            }
+            return true
         }
 
         private fun drawWorld(canvas: Canvas, ox: Float, oy: Float, t: Float) {

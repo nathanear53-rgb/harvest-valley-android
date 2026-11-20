@@ -13,62 +13,30 @@
         android:orientation="vertical"
         android:padding="8dp">
 
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="6dp"
+            android:text="Ketuk tanah untuk berjalan"
+            android:textColor="#FFFFFF"
+            android:textSize="12sp" />
+
         <LinearLayout
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:gravity="center"
             android:orientation="horizontal">
-
-            <Button
-                android:id="@+id/btnUp"
-                android:layout_width="64dp"
-                android:layout_height="52dp"
-                android:text="▲" />
-        </LinearLayout>
-
-        <LinearLayout
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:gravity="center"
-            android:orientation="horizontal">
-
-            <Button
-                android:id="@+id/btnLeft"
-                android:layout_width="64dp"
-                android:layout_height="52dp"
-                android:text="◀" />
 
             <Button
                 android:id="@+id/btnAction"
-                android:layout_width="96dp"
+                android:layout_width="104dp"
                 android:layout_height="52dp"
-                android:layout_marginStart="6dp"
-                android:layout_marginEnd="6dp"
                 android:text="AKSI"
                 android:textStyle="bold" />
 
             <Button
-                android:id="@+id/btnRight"
-                android:layout_width="64dp"
-                android:layout_height="52dp"
-                android:text="▶" />
-        </LinearLayout>
-
-        <LinearLayout
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:gravity="center"
-            android:orientation="horizontal">
-
-            <Button
-                android:id="@+id/btnDown"
-                android:layout_width="64dp"
-                android:layout_height="52dp"
-                android:text="▼" />
-
-            <Button
                 android:id="@+id/btnMenu"
-                android:layout_width="96dp"
+                android:layout_width="104dp"
                 android:layout_height="52dp"
                 android:layout_marginStart="6dp"
                 android:layout_marginEnd="6dp"
@@ -76,7 +44,7 @@
 
             <Button
                 android:id="@+id/btnSleep"
-                android:layout_width="96dp"
+                android:layout_width="104dp"
                 android:layout_height="52dp"
                 android:text="TIDUR" />
         </LinearLayout>
