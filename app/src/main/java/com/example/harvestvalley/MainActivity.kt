@@ -833,68 +833,160 @@ class MainActivity : Activity() {
         private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
         private var worldOx = 0f
         private var worldOy = 0f
-        private var worldTile = 1f
+        private var worldTw = 1f
+        private var worldTh = 1f
 
         override fun onDraw(canvas: Canvas) {
             super.onDraw(canvas)
             val w = width.toFloat()
             val h = height.toFloat()
-            val controlH = dp(205).toFloat()
-            val worldH = maxOf(dp(220).toFloat(), h - controlH)
-            worldTile = min(w / W, worldH / H)
-            worldOx = (w - worldTile * W) / 2f
-            worldOy = dp(10).toFloat()
+            val pad = dp(8).toFloat()
+            val worldTop = dp(72).toFloat()
+            val controlsH = dp(96).toFloat()
+            val logH = dp(58).toFloat()
+            val worldBottom = h - controlsH - logH - dp(16).toFloat()
+            val availableH = maxOf(dp(120).toFloat(), worldBottom - worldTop)
 
-            canvas.drawColor(Color.parseColor("#8BC34A"))
-            drawWorld(canvas, worldOx, worldOy, worldTile)
+            var tw = (w - 2 * pad) * 2f / (W + H)
+            var th = tw / 2f
+            var lift = th * 1.6f
+            val needH = (W + H) * th / 2f + lift
+            if (needH > availableH) {
+                val scale = availableH / needH
+                tw *= scale
+                th *= scale
+                lift = th * 1.6f
+            }
+
+            worldTw = tw
+            worldTh = th
+            worldOx = pad + H * tw / 2f
+            worldOy = worldTop + lift + th / 2f
+
+            canvas.drawColor(Color.parseColor("#AED581"))
+            drawWorld(canvas)
             drawHud(canvas, w)
-            drawLog(canvas, w, worldOy + worldTile * H)
+            drawLog(canvas, w, worldBottom + dp(8).toFloat(), logH)
         }
 
         override fun onTouchEvent(event: MotionEvent): Boolean {
             if (event.action == MotionEvent.ACTION_UP) {
-                val gx = ((event.x - worldOx) / worldTile).toInt()
-                val gy = ((event.y - worldOy) / worldTile).toInt()
+                val dx = event.x - worldOx
+                val dy = event.y - worldOy
+                val a = dx / (worldTw / 2f)
+                val b = dy / (worldTh / 2f)
+                val gx = Math.round((a + b) / 2f).toInt()
+                val gy = Math.round((b - a) / 2f).toInt()
                 if (gx in 0 until W && gy in 0 until H) startWalk(gx, gy)
             }
             return true
         }
 
-        private fun drawWorld(canvas: Canvas, ox: Float, oy: Float, t: Float) {
-            for (y in 0 until H) {
-                for (x in 0 until W) {
-                    paint.style = Paint.Style.FILL
-                    paint.color = tileColor(x, y)
-                    canvas.drawRect(ox + x * t, oy + y * t, ox + (x + 1) * t, oy + (y + 1) * t, paint)
-                    paint.color = Color.parseColor("#1B5E2033")
-                    canvas.drawRect(ox + x * t, oy + y * t, ox + (x + 1) * t, oy + y * t + 1, paint)
+        private fun sx(gx: Int, gy: Int): Float = worldOx + (gx - gy) * worldTw / 2f
+        private fun sy(gx: Int, gy: Int): Float = worldOy + (gx + gy) * worldTh / 2f
+        private fun sx(gx: Float, gy: Float): Float = worldOx + (gx - gy) * worldTw / 2f
+        private fun sy(gx: Float, gy: Float): Float = worldOy + (gx + gy) * worldTh / 2f
+
+        private fun diamondAt(
+            canvas: Canvas,
+            cx: Float,
+            cy: Float,
+            hw: Float,
+            hh: Float,
+            fill: Int,
+            stroke: Int = 0
+        ) {
+            val path = Path()
+            path.moveTo(cx, cy - hh)
+            path.lineTo(cx + hw, cy)
+            path.lineTo(cx, cy + hh)
+            path.lineTo(cx - hw, cy)
+            path.close()
+            paint.style = Paint.Style.FILL
+            paint.color = fill
+            canvas.drawPath(path, paint)
+            if (stroke != 0) {
+                paint.style = Paint.Style.STROKE
+                paint.color = stroke
+                paint.strokeWidth = 1f
+                canvas.drawPath(path, paint)
+                paint.style = Paint.Style.FILL
+            }
+        }
+
+        private fun polygon(canvas: Canvas, fill: Int, vararg points: Pair<Float, Float>) {
+            val path = Path()
+            path.moveTo(points[0].first, points[0].second)
+            for (i in 1 until points.size) path.lineTo(points[i].first, points[i].second)
+            path.close()
+            paint.style = Paint.Style.FILL
+            paint.color = fill
+            canvas.drawPath(path, paint)
+        }
+
+        private fun drawWorld(canvas: Canvas) {
+            for (sum in 0 until W + H - 1) {
+                val fromX = maxOf(0, sum - H + 1)
+                val toX = minOf(W - 1, sum)
+                for (x in fromX..toX) {
+                    val y = sum - x
+                    diamondAt(
+                        canvas,
+                        sx(x, y),
+                        sy(x, y),
+                        worldTw / 2f,
+                        worldTh / 2f,
+                        tileColor(x, y),
+                        Color.parseColor("#276749")
+                    )
                 }
             }
 
-            drawBuilding(canvas, ox, oy, t, 0, 0, 2, 2, "#FFE0B2", "#D84315", "RUMAH", 1, 2)
-            drawBuilding(canvas, ox, oy, t, 9, 0, 11, 2, "#B3E5FC", "#1565C0", "TOKO", 10, 2)
-            drawBuilding(canvas, ox, oy, t, 0, 8, 2, 9, "#D7CCC8", "#5D4037", "KANDANG", 1, 8)
-            drawShippingBin(canvas, ox, oy, t, 7, 3)
-            if (isFestival()) drawFestival(canvas, ox, oy, t, 10, 5)
+            val objects = mutableListOf<Pair<Int, () -> Unit>>()
+            objects.add(0 to {
+                drawBuildingIso(
+                    canvas, 0, 0, 2, 2, "#FFE0B2", "#D84315", "RUMAH", 1, 2
+                )
+            })
+            objects.add(9 to {
+                drawBuildingIso(
+                    canvas, 9, 0, 11, 2, "#B3E5FC", "#1565C0", "TOKO", 10, 2
+                )
+            })
+            objects.add(8 to {
+                drawBuildingIso(
+                    canvas, 0, 8, 2, 9, "#D7CCC8", "#5D4037", "KANDANG", 1, 8
+                )
+            })
+            objects.add(10 to { drawShippingBinIso(canvas, 7, 3) })
+            if (isFestival()) objects.add(15 to { drawFestivalIso(canvas, 10, 5) })
 
             for (y in FARM_Y1..FARM_Y2) {
                 for (x in FARM_X1..FARM_X2) {
                     val crop = tiles[y][x].crop ?: continue
-                    drawCrop(canvas, ox, oy, t, x, y, crop)
+                    objects.add(x + y to { drawCrop(canvas, x, y, crop) })
                 }
             }
-
             for (animal in animals) {
                 val index = animals.indexOf(animal)
                 val ax = 1 + (index % 2)
                 val ay = 8 + (index / 2)
-                drawAnimal(canvas, ox, oy, t, ax, ay, animal)
+                objects.add(ax + ay to { drawAnimal(canvas, ax, ay, animal) })
             }
+            for (npc in npcs) {
+                objects.add(npc.x + npc.y to {
+                    drawPerson(canvas, npc.x, npc.y, npc.color, npc.name)
+                })
+            }
+            for ((x, y) in arrayOf(3 to 1, 6 to 1, 7 to 6, 4 to 9, 7 to 9, 11 to 9)) {
+                objects.add(x + y to { drawTree(canvas, x, y) })
+            }
+            objects.add(playerX + playerY to {
+                drawPerson(canvas, playerX, playerY, Color.parseColor("#FF7043"), "Kamu")
+            })
 
-            for (npc in npcs) drawPerson(canvas, ox, oy, t, npc.x, npc.y, npc.color, npc.name)
-
-            drawTrees(canvas, ox, oy, t)
-            drawPerson(canvas, ox, oy, t, playerX, playerY, Color.parseColor("#FF7043"), "Kamu")
+            objects.sortBy { it.first }
+            objects.forEach { it.second() }
         }
 
         private fun tileColor(x: Int, y: Int): Int {
@@ -913,11 +1005,8 @@ class MainActivity : Activity() {
             }.let { Color.parseColor(it) }
         }
 
-        private fun drawBuilding(
+        private fun drawBuildingIso(
             canvas: Canvas,
-            ox: Float,
-            oy: Float,
-            t: Float,
             x1: Int,
             y1: Int,
             x2: Int,
@@ -928,146 +1017,166 @@ class MainActivity : Activity() {
             doorX: Int,
             doorY: Int
         ) {
-            val left = ox + x1 * t
-            val top = oy + y1 * t
-            val right = ox + (x2 + 1) * t
-            val bottom = oy + (y2 + 1) * t
-            paint.style = Paint.Style.FILL
-            paint.color = Color.parseColor(wall)
-            canvas.drawRect(left + 2, top + t * 0.35f, right - 2, bottom - 2, paint)
+            val mx = (x1 + x2 + 1) / 2f
+            val my = (y1 + y2 + 1) / 2f
+            val cx = sx(mx, my)
+            val cy = sy(mx, my)
+            val span = (x2 - x1 + 1 + y2 - y1 + 1).toFloat()
+            val hw = span * worldTw / 4f
+            val hh = span * worldTh / 4f
+            val height = worldTh * 1.7f
+            val topY = cy - height
+            val base = Color.parseColor(wall)
+            val dark = Color.rgb(
+                (Color.red(base) * 0.72f).toInt(),
+                (Color.green(base) * 0.72f).toInt(),
+                (Color.blue(base) * 0.72f).toInt()
+            )
 
-            val path = Path()
-            path.moveTo(left, top + t * 0.4f)
-            path.lineTo((left + right) / 2f, top - t * 0.15f)
-            path.lineTo(right, top + t * 0.4f)
-            path.close()
-            paint.color = Color.parseColor(roof)
-            canvas.drawPath(path, paint)
+            polygon(
+                canvas, dark,
+                cx - hw to topY, cx to topY + hh, cx to cy + hh, cx - hw to cy
+            )
+            polygon(
+                canvas, base,
+                cx to topY + hh, cx + hw to topY, cx + hw to cy, cx to cy + hh
+            )
+            diamondAt(canvas, cx, topY, hw, hh, Color.parseColor(roof))
 
-            paint.color = Color.parseColor("#5D4037")
-            canvas.drawRect(
-                ox + doorX * t + t * 0.3f,
-                oy + doorY * t + t * 0.15f,
-                ox + doorX * t + t * 0.7f,
-                oy + doorY * t + t * 0.95f,
-                paint
+            polygon(
+                canvas, Color.parseColor("#5D4037"),
+                cx + hw * 0.12f to cy - hh * 0.12f,
+                cx + hw * 0.45f to cy + hh * 0.08f,
+                cx + hw * 0.45f to cy + hh * 0.5f,
+                cx + hw * 0.12f to cy + hh * 0.3f
             )
 
             paint.color = Color.WHITE
             paint.textAlign = Paint.Align.CENTER
-            paint.textSize = t * 0.22f
+            paint.textSize = worldTw * 0.22f
             paint.isFakeBoldText = true
-            canvas.drawText(label, (left + right) / 2f, top + t * 0.78f, paint)
+            canvas.drawText(label, cx, topY - hh * 0.15f, paint)
             paint.isFakeBoldText = false
+            paint.textAlign = Paint.Align.LEFT
         }
 
-        private fun drawShippingBin(canvas: Canvas, ox: Float, oy: Float, t: Float, x: Int, y: Int) {
-            val cx = ox + x * t + t / 2f
-            val cy = oy + y * t + t / 2f
-            paint.style = Paint.Style.FILL
-            paint.color = Color.parseColor("#8D6E63")
-            canvas.drawRect(cx - t * 0.35f, cy - t * 0.2f, cx + t * 0.35f, cy + t * 0.3f, paint)
-            paint.color = Color.parseColor("#5D4037")
-            canvas.drawRect(cx - t * 0.38f, cy - t * 0.3f, cx + t * 0.38f, cy - t * 0.15f, paint)
+        private fun drawShippingBinIso(canvas: Canvas, x: Int, y: Int) {
+            val cx = sx(x, y)
+            val cy = sy(x, y)
+            val hw = worldTw * 0.34f
+            val hh = worldTh * 0.34f
+            val height = worldTh * 0.7f
+            val topY = cy - height
+            polygon(canvas, Color.parseColor("#5D4037"), cx - hw to topY, cx to topY + hh, cx to cy + hh, cx - hw to cy)
+            polygon(canvas, Color.parseColor("#8D6E63"), cx to topY + hh, cx + hw to topY, cx + hw to cy, cx to cy + hh)
+            diamondAt(canvas, cx, topY, hw, hh, Color.parseColor("#A1887F"))
             paint.color = Color.WHITE
             paint.textAlign = Paint.Align.CENTER
-            paint.textSize = t * 0.18f
-            canvas.drawText("JUAL", cx, cy + t * 0.62f, paint)
+            paint.textSize = worldTw * 0.16f
+            canvas.drawText("JUAL", cx, topY - hh * 0.2f, paint)
+            paint.textAlign = Paint.Align.LEFT
         }
 
-        private fun drawFestival(canvas: Canvas, ox: Float, oy: Float, t: Float, x: Int, y: Int) {
-            val cx = ox + x * t + t / 2f
-            val cy = oy + y * t + t / 2f
+        private fun drawFestivalIso(canvas: Canvas, x: Int, y: Int) {
+            val cx = sx(x, y)
+            val cy = sy(x, y)
+            paint.style = Paint.Style.STROKE
+            paint.color = Color.parseColor("#5D4037")
+            paint.strokeWidth = worldTw * 0.06f
+            canvas.drawLine(cx, cy, cx, cy - worldTh * 1.5f, paint)
             paint.style = Paint.Style.FILL
-            paint.color = Color.parseColor("#FFCA28")
-            canvas.drawCircle(cx, cy, t * 0.28f, paint)
-            paint.color = Color.parseColor("#E91E63")
-            paint.textAlign = Paint.Align.CENTER
-            paint.textSize = t * 0.18f
-            canvas.drawText("FEST", cx, cy + t * 0.06f, paint)
+            paint.strokeWidth = 1f
+            polygon(
+                canvas, Color.parseColor("#E91E63"),
+                cx to cy - worldTh * 1.5f,
+                cx + worldTw * 0.4f to cy - worldTh * 1.2f,
+                cx to cy - worldTh * 0.9f
+            )
         }
 
-        private fun drawCrop(canvas: Canvas, ox: Float, oy: Float, t: Float, x: Int, y: Int, crop: Crop) {
+        private fun drawCrop(canvas: Canvas, x: Int, y: Int, crop: Crop) {
             val info = crops[crop.kind] ?: return
             val ratio = (crop.growth.toFloat() / info.days).coerceIn(0f, 1f)
-            val cx = ox + x * t + t / 2f
-            val cy = oy + y * t + t / 2f
-            paint.style = Paint.Style.FILL
-            paint.color = if (ratio >= 1f) Color.parseColor("#FDD835") else Color.parseColor("#43A047")
-            canvas.drawCircle(cx, cy, t * (0.12f + ratio * 0.16f), paint)
+            val cx = sx(x, y)
+            val cy = sy(x, y)
+            diamondAt(canvas, cx, cy, worldTw * 0.24f, worldTh * 0.24f, Color.parseColor("#00000022"))
+            val h = worldTh * (0.3f + ratio * 0.7f)
+            paint.style = Paint.Style.STROKE
             paint.color = Color.parseColor("#2E7D32")
-            canvas.drawCircle(cx - t * 0.12f, cy + t * 0.12f, t * 0.08f, paint)
+            paint.strokeWidth = worldTw * 0.05f
+            canvas.drawLine(cx, cy, cx, cy - h, paint)
+            paint.style = Paint.Style.FILL
+            paint.strokeWidth = 1f
+            paint.color = if (ratio >= 1f) Color.parseColor("#FDD835") else Color.parseColor("#43A047")
+            canvas.drawCircle(cx, cy - h, worldTw * (0.07f + ratio * 0.09f), paint)
             if (crop.watered) {
                 paint.color = Color.parseColor("#4FC3F7")
-                canvas.drawCircle(cx + t * 0.22f, cy - t * 0.18f, t * 0.05f, paint)
+                canvas.drawCircle(cx + worldTw * 0.16f, cy - worldTh * 0.12f, worldTw * 0.04f, paint)
             }
         }
 
-        private fun drawAnimal(canvas: Canvas, ox: Float, oy: Float, t: Float, x: Int, y: Int, animal: Animal) {
-            val cx = ox + x * t + t / 2f
-            val cy = oy + y * t + t / 2f
-            paint.style = Paint.Style.FILL
+        private fun drawAnimal(canvas: Canvas, x: Int, y: Int, animal: Animal) {
+            val cx = sx(x, y)
+            val cy = sy(x, y)
+            diamondAt(canvas, cx, cy, worldTw * 0.24f, worldTh * 0.24f, Color.parseColor("#00000022"))
             if (animal.kind == "chicken") {
                 paint.color = Color.WHITE
-                canvas.drawOval(cx - t * 0.22f, cy - t * 0.16f, cx + t * 0.22f, cy + t * 0.2f, paint)
+                canvas.drawOval(
+                    cx - worldTw * 0.16f, cy - worldTh * 0.42f,
+                    cx + worldTw * 0.16f, cy - worldTh * 0.06f, paint
+                )
                 paint.color = Color.parseColor("#F57F17")
-                canvas.drawCircle(cx + t * 0.14f, cy - t * 0.18f, t * 0.05f, paint)
+                canvas.drawCircle(cx + worldTw * 0.1f, cy - worldTh * 0.42f, worldTw * 0.04f, paint)
             } else {
                 paint.color = Color.WHITE
-                canvas.drawRect(cx - t * 0.26f, cy - t * 0.18f, cx + t * 0.26f, cy + t * 0.2f, paint)
+                canvas.drawRect(
+                    cx - worldTw * 0.2f, cy - worldTh * 0.5f,
+                    cx + worldTw * 0.2f, cy - worldTh * 0.1f, paint
+                )
                 paint.color = Color.parseColor("#424242")
-                canvas.drawCircle(cx - t * 0.12f, cy, t * 0.07f, paint)
-                canvas.drawCircle(cx + t * 0.1f, cy + t * 0.08f, t * 0.06f, paint)
+                canvas.drawCircle(cx - worldTw * 0.09f, cy - worldTh * 0.3f, worldTw * 0.05f, paint)
+                canvas.drawCircle(cx + worldTw * 0.08f, cy - worldTh * 0.2f, worldTw * 0.04f, paint)
             }
             if (animal.product) {
                 paint.color = Color.parseColor("#FFD54F")
-                canvas.drawCircle(cx + t * 0.22f, cy - t * 0.24f, t * 0.06f, paint)
+                canvas.drawCircle(cx + worldTw * 0.16f, cy - worldTh * 0.62f, worldTw * 0.05f, paint)
             }
         }
 
-        private fun drawTrees(canvas: Canvas, ox: Float, oy: Float, t: Float) {
-            val spots = arrayOf(
-                3 to 1, 6 to 1, 7 to 6, 4 to 9, 7 to 9, 11 to 9
+        private fun drawTree(canvas: Canvas, x: Int, y: Int) {
+            val cx = sx(x, y)
+            val cy = sy(x, y)
+            diamondAt(canvas, cx, cy, worldTw * 0.28f, worldTh * 0.28f, Color.parseColor("#00000022"))
+            paint.color = Color.parseColor("#5D4037")
+            canvas.drawRect(
+                cx - worldTw * 0.04f, cy - worldTh * 0.7f,
+                cx + worldTw * 0.04f, cy, paint
             )
-            for ((x, y) in spots) {
-                val cx = ox + x * t + t / 2f
-                val cy = oy + y * t + t / 2f
-                paint.style = Paint.Style.FILL
-                paint.color = Color.parseColor("#5D4037")
-                canvas.drawRect(cx - t * 0.05f, cy, cx + t * 0.05f, cy + t * 0.3f, paint)
-                paint.color = Color.parseColor("#2E7D32")
-                canvas.drawCircle(cx, cy - t * 0.08f, t * 0.26f, paint)
-                paint.color = Color.parseColor("#43A047")
-                canvas.drawCircle(cx - t * 0.12f, cy - t * 0.18f, t * 0.16f, paint)
-            }
+            paint.color = Color.parseColor("#2E7D32")
+            canvas.drawCircle(cx, cy - worldTh * 0.95f, worldTw * 0.2f, paint)
+            paint.color = Color.parseColor("#43A047")
+            canvas.drawCircle(cx - worldTw * 0.09f, cy - worldTh * 1.12f, worldTw * 0.12f, paint)
         }
 
-        private fun drawPerson(
-            canvas: Canvas,
-            ox: Float,
-            oy: Float,
-            t: Float,
-            gx: Int,
-            gy: Int,
-            color: Int,
-            name: String
-        ) {
-            val cx = ox + gx * t + t / 2f
-            val cy = oy + gy * t + t / 2f
-            paint.style = Paint.Style.FILL
-            paint.color = Color.parseColor("#00000033")
-            canvas.drawOval(cx - t * 0.22f, cy + t * 0.24f, cx + t * 0.22f, cy + t * 0.34f, paint)
+        private fun drawPerson(canvas: Canvas, x: Int, y: Int, color: Int, name: String) {
+            val cx = sx(x, y)
+            val cy = sy(x, y)
+            diamondAt(canvas, cx, cy, worldTw * 0.2f, worldTh * 0.2f, Color.parseColor("#00000033"))
             paint.color = color
-            canvas.drawCircle(cx, cy, t * 0.24f, paint)
+            canvas.drawOval(
+                cx - worldTw * 0.14f, cy - worldTh * 0.95f,
+                cx + worldTw * 0.14f, cy - worldTh * 0.2f, paint
+            )
             paint.color = Color.parseColor("#FFE0B2")
-            canvas.drawCircle(cx, cy - t * 0.06f, t * 0.16f, paint)
+            canvas.drawCircle(cx, cy - worldTh * 1.08f, worldTw * 0.12f, paint)
             paint.color = Color.parseColor("#3E2723")
-            canvas.drawCircle(cx - t * 0.06f, cy - t * 0.08f, t * 0.025f, paint)
-            canvas.drawCircle(cx + t * 0.06f, cy - t * 0.08f, t * 0.025f, paint)
+            canvas.drawCircle(cx - worldTw * 0.04f, cy - worldTh * 1.1f, worldTw * 0.015f, paint)
+            canvas.drawCircle(cx + worldTw * 0.04f, cy - worldTh * 1.1f, worldTw * 0.015f, paint)
             paint.color = Color.WHITE
             paint.textAlign = Paint.Align.CENTER
-            paint.textSize = t * 0.18f
-            canvas.drawText(name, cx, cy - t * 0.32f, paint)
+            paint.textSize = worldTw * 0.16f
+            canvas.drawText(name, cx, cy - worldTh * 1.4f, paint)
+            paint.textAlign = Paint.Align.LEFT
         }
 
         private fun drawHud(canvas: Canvas, w: Float) {
@@ -1107,15 +1216,12 @@ class MainActivity : Activity() {
                 dp(6).toFloat(), dp(6).toFloat(), paint
             )
             paint.color = Color.WHITE
-            paint.textAlign = Paint.Align.LEFT
             paint.textSize = dp(11).toFloat()
             canvas.drawText("Stamina", barX, barY - dp(4), paint)
         }
 
-        private fun drawLog(canvas: Canvas, w: Float, worldBottom: Float) {
+        private fun drawLog(canvas: Canvas, w: Float, top: Float, height: Float) {
             val pad = dp(8).toFloat()
-            val top = worldBottom + dp(6)
-            val height = dp(62).toFloat()
             paint.style = Paint.Style.FILL
             paint.color = Color.parseColor("#AA000000")
             canvas.drawRoundRect(RectF(pad, top, w - pad, top + height), dp(10).toFloat(), dp(10).toFloat(), paint)
