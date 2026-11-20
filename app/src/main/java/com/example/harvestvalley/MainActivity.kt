@@ -10,6 +10,7 @@ import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RectF
 import android.os.Bundle
+import android.view.View
 import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.Toast
